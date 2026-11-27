@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本地AI聊天框 · 代理支持</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background: linear-gradient(145deg, #1e1f2b 0%, #2a2c3a 100%);
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        height: 100vh; display: flex; align-items: center; justify-content: center;
+        padding: 16px;
+    }
+    .chat-wrapper {
+        width: 100%; max-width: 960px; height: 94vh;
+        background: rgba(22, 23, 32, 0.85);
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        border-radius: 32px; border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8);
+        display: flex; flex-direction: column; overflow: hidden;
+    }
+    .chat-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.06);
+        background: rgba(18,19,26,0.6); flex-shrink: 0; gap: 12px;
+    }
+    .chat-header h1 {
+        font-size: 1.05rem; font-weight: 500; color: #eceef5;
+        display: flex; align-items: center; gap: 8px; white-space: nowrap;
+    }
+    .status-dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #6a6e83; display: inline-block; transition: background 0.3s;
+    }
+    .status-dot.ok { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+    .status-dot.fail { background: #f87171; box-shadow: 0 0 8px #f87171; }
+    .status-dot.loading { background: #fbbf24; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .active-selector {
+        display: flex; align-items: center; gap: 8px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 30px; padding: 4px 6px 4px 14px;
+        font-size: 0.82rem; color: #c8ccdc; max-width: 320px;
+    }
+    .active-selector label { color: #8b8fa3; white-space: nowrap; }
+    .active-selector select {
+        background: transparent; border: none; color: #eceef5;
+        font-size: 0.82rem; padding: 6px 24px 6px 6px;
+        cursor: pointer; outline: none; font-family: inherit; max-width: 200px;
+    }
+    .active-selector select option { background: #1b1d28; color: #eceef5; }
+
+    .header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+    .icon-btn {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: #c8ccdc; font-size: 0.82rem; padding: 8px 14px;
+        border-radius: 30px; cursor: pointer; transition: all 0.15s;
+        display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+    .icon-btn:active { transform: scale(0.96); }
+
+    .config-panel {
+        background: rgba(15,16,22,0.98);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        padding: 0 20px; max-height: 0; overflow: hidden;
+        transition: max-height 0.35s ease, padding 0.35s ease;
+        flex-shrink: 0;
+    }
+    .config-panel.open { max-height: 700px; padding: 16px 20px 20px; overflow-y: auto; }
+    .config-panel::-webkit-scrollbar { width: 6px; }
+    .config-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
+
+    .panel-section { margin-bottom: 18px; }
+    .panel-section:last-child { margin-bottom: 0; }
+    .section-title {
+        font-size: 0.75rem; color: #8b8fa3; text-transform: uppercase;
+        letter-spacing: 0.08em; margin-bottom: 10px; font-weight: 600;
+    }
+
+    .conn-list { display: flex; flex-direction: column; gap: 8px; }
+    .conn-item {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 14px; background: #1a1c26;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 14px; transition: all 0.15s;
+    }
+    .conn-item.active {
+        border-color: rgba(92,98,224,0.6);
+        background: rgba(92,98,224,0.08);
+        box-shadow: 0 0 0 1px rgba(92,98,224,0.2);
+    }
+    .conn-info { flex: 1; min-width: 0; }
+    .conn-name {
+        font-size: 0.88rem; color: #eceef5; font-weight: 500;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .conn-name .badge-active {
+        font-size: 0.65rem; background: #5c62e0; color: white;
+        padding: 2px 8px; border-radius: 10px; font-weight: 600;
+    }
+    .conn-meta {
+        font-size: 0.72rem; color: #7b7f94; margin-top: 3px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .conn-meta .proxy-tag {
+        color: #fbbf24; margin-left: 6px;
+    }
+    .conn-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .mini-btn {
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: #c8ccdc; font-size: 0.72rem; padding: 5px 10px;
+        border-radius: 20px; cursor: pointer; transition: all 0.15s;
+    }
+    .mini-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    .mini-btn.danger:hover { background: rgba(220,80,80,0.2); color: #ffb3b3; border-color: rgba(220,80,80,0.4); }
+    .mini-btn.activate { color: #9ba0ff; }
+    .mini-btn.activate:hover { background: rgba(92,98,224,0.2); color: #c7cbff; }
+
+    .empty-hint {
+        text-align: center; padding: 20px; color: #5b5f75;
+        font-size: 0.82rem; border: 1px dashed rgba(255,255,255,0.08);
+        border-radius: 14px;
+    }
+
+    .config-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .config-row label {
+        font-size: 0.75rem; color: #9ba0b5; font-weight: 500; letter-spacing: 0.02em;
+    }
+    .config-row label .hint {
+        color: #5b5f75; font-weight: 400; font-size: 0.7rem; margin-left: 6px;
+    }
+    .config-row input, .config-row select {
+        background: #1b1d28; border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px; padding: 10px 14px; color: #eceef5;
+        font-size: 0.86rem; font-family: inherit; outline: none;
+        transition: border 0.2s;
+    }
+    .config-row input:focus, .config-row select:focus {
+        border-color: rgba(120,130,255,0.5);
+        box-shadow: 0 0 0 3px rgba(100,110,255,0.1);
+    }
+    .config-row input::placeholder { color: #5b5f75; }
+
+    .two-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .config-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+    .btn-primary {
+        background: linear-gradient(135deg, #5c62e0, #4045b0);
+        border: none; color: white; padding: 10px 20px;
+        border-radius: 30px; cursor: pointer; font-size: 0.86rem;
+        font-weight: 500; transition: all 0.15s;
+        box-shadow: 0 4px 14px rgba(60,70,200,0.3);
+    }
+    .btn-primary:hover { background: linear-gradient(135deg, #6b72f0, #4b51c0); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-ghost {
+        background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+        color: #c8ccdc; padding: 10px 20px; border-radius: 30px;
+        cursor: pointer; font-size: 0.86rem; transition: all 0.15s;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+    .test-result {
+        margin-top: 12px; padding: 12px 16px; border-radius: 12px;
+        font-size: 0.8rem; line-height: 1.6;
+        display: none; white-space: pre-wrap; word-break: break-word;
+    }
+    .test-result.show { display: block; }
+    .test-result.ok { background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.3); color: #b9f6ca; }
+    .test-result.fail { background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.3); color: #ffb3b3; }
+    .test-result.info { background: rgba(251,191,36,0.08); border: 1px solid rgba(251,191,36,0.25); color: #fde68a; }
+
+    .model-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .model-chip {
+        background: rgba(92,98,224,0.15); border: 1px solid rgba(92,98,224,0.35);
+        color: #c7cbff; padding: 4px 12px; border-radius: 20px;
+        font-size: 0.74rem; cursor: pointer; transition: all 0.15s;
+    }
+    .model-chip:hover { background: rgba(92,98,224,0.35); color: #fff; }
+    .model-chip.active { background: #5c62e0; color: #fff; border-color: #5c62e0; }
+
+    .chat-messages {
+        flex: 1; overflow-y: auto; padding: 20px 20px 8px;
+        display: flex; flex-direction: column; gap: 14px; scroll-behavior: smooth;
+    }
+    .chat-messages::-webkit-scrollbar { width: 6px; }
+    .chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
+
+    .message { display: flex; max-width: 85%; animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(8px);} to { opacity:1; transform: translateY(0);} }
+    .message.user { align-self: flex-end; }
+    .message.assistant { align-self: flex-start; }
+    .bubble {
+        padding: 12px 18px; border-radius: 22px; font-size: 0.92rem;
+        line-height: 1.6; word-break: break-word; white-space: pre-wrap;
+    }
+    .message.user .bubble {
+        background: #3b3f5e; color: #f0f2fa;
+        border-bottom-right-radius: 8px; border: 1px solid rgba(255,255,255,0.08);
+    }
+    .message.assistant .bubble {
+        background: #252836; color: #e4e7f0;
+        border-bottom-left-radius: 8px; border: 1px solid rgba(255,255,255,0.05);
+    }
+    .meta { font-size: 0.68rem; color: #7b7f94; margin-bottom: 4px; margin-left: 4px; }
+
+    .system-toast {
+        align-self: center; background: rgba(180,60,60,0.25);
+        border: 1px solid rgba(220,80,80,0.4); color: #ffb3b3;
+        padding: 10px 18px; border-radius: 30px; font-size: 0.82rem;
+        max-width: 90%; text-align: center;
+    }
+
+    .chat-input-area {
+        padding: 14px 20px 18px; background: rgba(18,19,26,0.7);
+        border-top: 1px solid rgba(255,255,255,0.06); flex-shrink: 0;
+    }
+    .input-row {
+        display: flex; align-items: flex-end; gap: 10px;
+        background: #1b1d28; border-radius: 36px;
+        border: 1px solid rgba(255,255,255,0.08);
+        padding: 5px 5px 5px 18px; transition: border 0.2s;
+    }
+    .input-row:focus-within {
+        border-color: rgba(120,130,255,0.5);
+        box-shadow: 0 0 0 3px rgba(100,110,255,0.1);
+    }
+    .input-row textarea {
+        flex: 1; background: transparent; border: none; color: #eceef5;
+        font-size: 0.92rem; font-family: inherit; resize: none; outline: none;
+        padding: 10px 0; max-height: 120px; line-height: 1.5;
+    }
+    .input-row textarea::placeholder { color: #6a6e83; }
+    .send-btn {
+        background: linear-gradient(135deg, #5c62e0, #4045b0);
+        border: none; color: white; width: 46px; height: 46px;
+        border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+        box-shadow: 0 4px 14px rgba(60,70,200,0.35);
+    }
+    .send-btn:hover { background: linear-gradient(135deg, #6b72f0, #4b51c0); }
+    .send-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+    .send-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+    .typing-indicator {
+        display: flex; gap: 5px; padding: 8px 18px; background: #252836;
+        border-radius: 22px; border-bottom-left-radius: 8px; width: fit-content;
+    }
+    .typing-indicator span {
+        width: 6px; height: 6px; background: #8b8fa3; border-radius: 50%;
+        display: inline-block; animation: bounce 1.4s infinite ease-in-out;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+        0%,60%,100% { transform: translateY(0); opacity: 0.5; }
+        30% { transform: translateY(-6px); opacity: 1; }
+    }
+</style>
+</head>
+<body>
+<div class="chat-wrapper">
+    <div class="chat-header">
+        <h1>
+            <span id="statusDot" class="status-dot"></span>
+            🧠 AI聊天
+        </h1>
+        <div class="active-selector">
+            <label>当前连接</label>
+            <select id="activeSelect"><option value="">— 无 —</option></select>
+        </div>
+        <div class="header-actions">
+            <button class="icon-btn" id="toggleConfigBtn">🔌 连接管理</button>
+            <button class="icon-btn" id="clearBtn">🗑️ 清空对话</button>
+        </div>
+    </div>
+
+    <div class="config-panel" id="configPanel">
+        <div class="panel-section">
+            <div class="section-title">📁 已保存的连接</div>
+            <div class="conn-list" id="connList">
+                <div class="empty-hint">还没有保存的连接，请在下方添加。</div>
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <div class="section-title" id="formTitle">➕ 新建连接</div>
+            <div class="config-row">
+                <label>配置名称</label>
+                <input type="text" id="cfgName" placeholder="例如：DeepSeek官方、本地Ollama">
+            </div>
+            <div class="config-row">
+                <label>API 地址（chat/completions 完整地址）</label>
+                <input type="text" id="cfgEndpoint" placeholder="https://.../v1/chat/completions">
+            </div>
+            <div class="two-cols">
+                <div class="config-row">
+                    <label>API 密钥</label>
+                    <input type="password" id="cfgApiKey" placeholder="sk-... (编辑时留空沿用)">
+                </div>
+                <div class="config-row">
+                    <label>模型</label>
+                    <select id="cfgModel"><option value="">— 先测试获取 —</option></select>
+                </div>
+            </div>
+            <div class="config-row">
+                <label>请求代理 <span class="hint">（可选，如 http://127.0.0.1:7890，留空表示直连）</span></label>
+                <input type="text" id="cfgProxy" placeholder="http://127.0.0.1:7890">
+            </div>
+            <div class="config-actions">
+                <button class="btn-primary" id="testBtn">🔍 测试连接 & 获取模型</button>
+                <button class="btn-ghost" id="saveBtn">💾 保存连接</button>
+                <button class="btn-ghost" id="cancelEditBtn" style="display:none;">✖ 取消编辑</button>
+            </div>
+            <div class="test-result" id="testResult"></div>
+            <div class="model-list" id="modelList"></div>
+        </div>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        <div class="message assistant">
+            <div>
+                <div class="meta">🤖 AI助手</div>
+                <div class="bubble">你好！点击右上角「🔌 连接管理」添加你的 API 连接。可以为每个连接单独配置代理（例如 http://127.0.0.1:7890）。</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-input-area">
+        <div class="input-row">
+            <textarea id="messageInput" rows="1" placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"></textarea>
+            <button class="send-btn" id="sendBtn" title="发送">
+                <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function(){
+    const BACKEND = '';
+
+    const chatMessages = document.getElementById('chatMessages');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const toggleConfigBtn = document.getElementById('toggleConfigBtn');
+    const configPanel = document.getElementById('configPanel');
+    const activeSelect = document.getElementById('activeSelect');
+    const connList = document.getElementById('connList');
+    const cfgName = document.getElementById('cfgName');
+    const cfgEndpoint = document.getElementById('cfgEndpoint');
+    const cfgApiKey = document.getElementById('cfgApiKey');
+    const cfgModel = document.getElementById('cfgModel');
+    const cfgProxy = document.getElementById('cfgProxy');
+    const testBtn = document.getElementById('testBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelEditBtn = document.getElementById('cancelEditBtn');
+    const testResult = document.getElementById('testResult');
+    const modelList = document.getElementById('modelList');
+    const statusDot = document.getElementById('statusDot');
+    const formTitle = document.getElementById('formTitle');
+
+    let isLoading = false;
+    let typingIndicatorEl = null;
+    let conversationHistory = [{ role:'system', content:'你是一个乐于助人、知识渊博的AI助手。' }];
+    let allConnections = [];
+    let editingId = null;
+    let selectedModel = '';
+
+    function scrollToBottom(){ chatMessages.scrollTop = chatMessages.scrollHeight; }
+    function setStatus(state){
+        statusDot.className = 'status-dot';
+        if (state === 'ok') statusDot.classList.add('ok');
+        else if (state === 'fail') statusDot.classList.add('fail');
+        else if (state === 'loading') statusDot.classList.add('loading');
+    }
+    function appendMessage(role, content, isError=false){
+        if (isError){
+            const d = document.createElement('div');
+            d.className = 'system-toast'; d.textContent = content;
+            chatMessages.appendChild(d);
+        } else {
+            const msg = document.createElement('div');
+            msg.className = `message ${role}`;
+            const inner = document.createElement('div');
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            meta.textContent = role === 'user' ? '👤 你' : '🤖 AI助手';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble'; bubble.textContent = content;
+            inner.appendChild(meta); inner.appendChild(bubble);
+            msg.appendChild(inner); chatMessages.appendChild(msg);
+        }
+        scrollToBottom();
+    }
+    function showTyping(){
+        if (typingIndicatorEl) return;
+        const w = document.createElement('div');
+        w.className = 'message assistant';
+        const inner = document.createElement('div');
+        const ind = document.createElement('div');
+        ind.className = 'typing-indicator';
+        ind.innerHTML = '<span></span><span></span><span></span>';
+        inner.appendChild(ind); w.appendChild(inner);
+        chatMessages.appendChild(w); typingIndicatorEl = w; scrollToBottom();
+    }
+    function hideTyping(){ if (typingIndicatorEl){ typingIndicatorEl.remove(); typingIndicatorEl = null; } }
+
+    function showTestResult(text, type){
+        testResult.className = 'test-result show ' + type;
+        testResult.textContent = text;
+    }
+    function hideTestResult(){
+        testResult.className = 'test-result'; testResult.textContent = '';
+    }
+
+    function renderConnections(){
+        activeSelect.innerHTML = '';
+        if (!allConnections.length){
+            activeSelect.innerHTML = '<option value="">— 无 —</option>';
+            setStatus('idle');
+        } else {
+            allConnections.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = (c.is_active ? '● ' : '') + c.name + ' (' + c.model + ')';
+                if (c.is_active) opt.selected = true;
+                activeSelect.appendChild(opt);
+            });
+            const active = allConnections.find(c => c.is_active);
+            setStatus(active ? 'ok' : 'idle');
+        }
+
+        if (!allConnections.length){
+            connList.innerHTML = '<div class="empty-hint">还没有保存的连接，请在下方添加。</div>';
+            return;
+        }
+        connList.innerHTML = '';
+        allConnections.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'conn-item' + (c.is_active ? ' active' : '');
+            const proxyTag = c.request_proxy
+                ? `<span class="proxy-tag">🧭 代理</span>`
+                : '';
+            item.innerHTML = `
+                <div class="conn-info">
+                    <div class="conn-name">
+                        ${escapeHtml(c.name)}
+                        ${c.is_active ? '<span class="badge-active">使用中</span>' : ''}
+                    </div>
+                    <div class="conn-meta">${escapeHtml(c.model)} · ${escapeHtml(shortenEndpoint(c.endpoint))}${proxyTag}</div>
+                </div>
+                <div class="conn-actions">
+                    ${!c.is_active ? `<button class="mini-btn activate" data-act="activate" data-id="${c.id}">启用</button>` : ''}
+                    <button class="mini-btn" data-act="edit" data-id="${c.id}">编辑</button>
+                    <button class="mini-btn danger" data-act="delete" data-id="${c.id}">删除</button>
+                </div>
+            `;
+            connList.appendChild(item);
+        });
+        connList.querySelectorAll('button[data-act]').forEach(btn => {
+            btn.onclick = () => handleConnAction(btn.dataset.act, btn.dataset.id);
+        });
+    }
+    function escapeHtml(s){
+        return String(s).replace(/[&<>"']/g, ch => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[ch]));
+    }
+    function shortenEndpoint(ep){
+        try {
+            const u = new URL(ep);
+            return u.host + (u.pathname.length > 30 ? u.pathname.slice(0,30)+'…' : u.pathname);
+        } catch { return ep.slice(0,40); }
+    }
+
+    async function loadConnections(){
+        try {
+            const r = await fetch(BACKEND + '/api/connections');
+            const d = await r.json();
+            allConnections = d.connections || [];
+            renderConnections();
+        } catch(e){
+            console.error('加载连接失败', e);
+            allConnections = [];
+            renderConnections();
+        }
+    }
+
+    async function handleConnAction(act, id){
+        if (act === 'activate'){
+            await fetch(BACKEND + `/api/connections/${id}/activate`, {method:'POST'});
+            await loadConnections();
+        } else if (act === 'edit'){
+            startEdit(id);
+        } else if (act === 'delete'){
+            if (!confirm('确定删除这个连接配置吗？')) return;
+            await fetch(BACKEND + `/api/connections/${id}`, {method:'DELETE'});
+            if (editingId === id) resetForm();
+            await loadConnections();
+        }
+    }
+
+    function startEdit(id){
+        const c = allConnections.find(x => x.id === id);
+        if (!c) return;
+        editingId = id;
+        cfgName.value = c.name;
+        cfgEndpoint.value = c.endpoint;
+        cfgApiKey.value = '';
+        cfgApiKey.placeholder = '已保存密钥 (' + c.api_key_masked + ')，留空沿用';
+        cfgProxy.value = c.request_proxy || '';
+        selectedModel = c.model;
+        cfgModel.innerHTML = `<option value="${escapeHtml(c.model)}" selected>${escapeHtml(c.model)}</option>`;
+        modelList.innerHTML = '';
+        hideTestResult();
+        formTitle.textContent = '✏️ 编辑连接：' + c.name;
+        saveBtn.textContent = '💾 更新连接';
+        cancelEditBtn.style.display = '';
+        configPanel.classList.add('open');
+        configPanel.scrollTop = configPanel.scrollHeight;
+    }
+
+    function resetForm(){
+        editingId = null;
+        cfgName.value = '';
+        cfgEndpoint.value = '';
+        cfgApiKey.value = '';
+        cfgApiKey.placeholder = 'sk-...';
+        cfgProxy.value = '';
+        cfgModel.innerHTML = '<option value="">— 先测试获取 —</option>';
+        selectedModel = '';
+        modelList.innerHTML = '';
+        hideTestResult();
+        formTitle.textContent = '➕ 新建连接';
+        saveBtn.textContent = '💾 保存连接';
+        cancelEditBtn.style.display = 'none';
+    }
+
+    async function testConnection(){
+        const endpoint = cfgEndpoint.value.trim();
+        const apiKey = cfgApiKey.value.trim();
+        const proxy = cfgProxy.value.trim();
+
+        if (!endpoint){ showTestResult('请填写 API 地址', 'fail'); return; }
+        if (!apiKey && !editingId){ showTestResult('请填写 API 密钥', 'fail'); return; }
+
+        testBtn.disabled = true;
+        setStatus('loading');
+        showTestResult('⏳ 正在测试...' + (proxy ? `\n🧭 代理: ${proxy}` : '\n🔗 直连'), 'info');
+        modelList.innerHTML = '';
+
+        const body = { endpoint };
+        if (apiKey) body.api_key = apiKey;
+        if (!apiKey && editingId) body.connection_id = editingId;
+        if (proxy) body.request_proxy = proxy;
+        else if (!proxy && editingId) body.request_proxy = '';  // 显式置空
+
+        try {
+            const r = await fetch(BACKEND + '/api/test-connection', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+
+            if (d.connected){
+                setStatus('ok');
+                let msg = `✅ 连接成功！HTTP ${d.http_status} | ${d.elapsed_ms}ms\n🧭 代理: ${d.proxy}`;
+                if (d.models && d.models.length) msg += `\n获取到 ${d.models.length} 个模型`;
+                if (d.error) msg += `\n⚠️ ${d.error}`;
+                showTestResult(msg, 'ok');
+
+                if (d.models && d.models.length){
+                    cfgModel.innerHTML = '';
+                    d.models.forEach(m => {
+                        const opt = document.createElement('option');
+                        opt.value = m; opt.textContent = m;
+                        cfgModel.appendChild(opt);
+                    });
+                    const prefer = (selectedModel && d.models.includes(selectedModel)) ? selectedModel : d.models[0];
+                    cfgModel.value = prefer;
+                    selectedModel = prefer;
+                    renderModelChips(d.models);
+                } else {
+                    cfgModel.innerHTML = '<option value="">（接口未返回模型，请手动输入）</option>';
+                    const manual = document.createElement('input');
+                    manual.type = 'text';
+                    manual.placeholder = '手动输入模型名';
+                    manual.value = selectedModel || '';
+                    manual.style.cssText = 'margin-top:6px;background:#1b1d28;border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:8px 12px;color:#eceef5;width:100%;';
+                    manual.oninput = () => { selectedModel = manual.value.trim(); };
+                    modelList.innerHTML = '';
+                    modelList.appendChild(manual);
+                }
+            } else {
+                setStatus('fail');
+                showTestResult('❌ 连接失败：\n' + (d.error || '未知') + (d.http_status ? `\n(HTTP ${d.http_status})` : ''), 'fail');
+            }
+        } catch(e){
+            setStatus('fail');
+            showTestResult('❌ 请求后端失败: ' + e.message, 'fail');
+        } finally {
+            testBtn.disabled = false;
+        }
+    }
+
+    function renderModelChips(models){
+        modelList.innerHTML = '';
+        models.forEach(m => {
+            const chip = document.createElement('span');
+            chip.className = 'model-chip' + (m === selectedModel ? ' active' : '');
+            chip.textContent = m;
+            chip.onclick = () => {
+                selectedModel = m;
+                cfgModel.value = m;
+                document.querySelectorAll('.model-chip').forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+            };
+            modelList.appendChild(chip);
+        });
+    }
+
+    async function saveConnection(){
+        const name = cfgName.value.trim();
+        const endpoint = cfgEndpoint.value.trim();
+        const apiKey = cfgApiKey.value.trim();
+        const model = cfgModel.value || selectedModel;
+        const proxy = cfgProxy.value.trim();
+
+        if (!name){ showTestResult('请填写配置名称', 'fail'); return; }
+        if (!endpoint){ showTestResult('请填写 API 地址', 'fail'); return; }
+        if (!model){ showTestResult('请选择或输入模型', 'fail'); return; }
+        if (!editingId && !apiKey){ showTestResult('请填写 API 密钥', 'fail'); return; }
+
+        saveBtn.disabled = true;
+        try {
+            if (editingId){
+                const body = { name, endpoint, model, request_proxy: proxy };
+                if (apiKey) body.api_key = apiKey;
+                const r = await fetch(BACKEND + `/api/connections/${editingId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(body)
+                });
+                if (!r.ok){ const j = await r.json(); throw new Error(j.detail || '更新失败'); }
+            } else {
+                const r = await fetch(BACKEND + '/api/connections', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ name, endpoint, api_key: apiKey, model, request_proxy: proxy })
+                });
+                if (!r.ok){ const j = await r.json(); throw new Error(j.detail || '保存失败'); }
+            }
+            showTestResult('✅ 已保存' + (proxy ? ` (代理: ${proxy})` : ' (直连)'), 'ok');
+            await loadConnections();
+            resetForm();
+        } catch(e){
+            showTestResult('保存失败: ' + e.message, 'fail');
+        } finally {
+            saveBtn.disabled = false;
+        }
+    }
+
+    async function sendMessage(){
+        const text = messageInput.value.trim();
+        if (!text || isLoading) return;
+        const active = allConnections.find(c => c.is_active);
+        if (!active){
+            appendMessage(null, '⚠️ 请先在「连接管理」中添加并启用一个连接', true);
+            return;
+        }
+
+        appendMessage('user', text);
+        conversationHistory.push({ role:'user', content:text });
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+        isLoading = true;
+        sendBtn.disabled = true;
+        showTyping();
+
+        try {
+            const r = await fetch(BACKEND + '/api/chat', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    messages: conversationHistory,
+                    connection_id: active.id,
+                    model: active.model
+                })
+            });
+            if (!r.ok){
+                let err = '';
+                try { const j = await r.json(); err = j.detail || JSON.stringify(j); }
+                catch { err = await r.text(); }
+                throw new Error(`HTTP ${r.status}: ${err}`);
+            }
+            const data = await r.json();
+            let reply = '';
+            if (data.choices && data.choices[0]?.message?.content) reply = data.choices[0].message.content;
+            else if (data.content) reply = data.content;
+            else if (data.response) reply = data.response;
+            else if (data.text) reply = data.text;
+
+            if (!reply || !reply.trim()) throw new Error('API 返回空回复');
+            hideTyping();
+            appendMessage('assistant', reply);
+            conversationHistory.push({ role:'assistant', content:reply });
+            setStatus('ok');
+        } catch(e){
+            hideTyping();
+            appendMessage(null, '⚠️ ' + e.message, true);
+            setStatus('fail');
+        } finally {
+            isLoading = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+        }
+    }
+
+    function clearConversation(){
+        if (isLoading) return;
+        chatMessages.innerHTML = '';
+        conversationHistory = [{ role:'system', content:'你是一个乐于助人、知识渊博的AI助手。' }];
+        appendMessage('assistant', '对话已清空。我们可以重新开始了！');
+    }
+
+    toggleConfigBtn.onclick = () => configPanel.classList.toggle('open');
+    testBtn.onclick = testConnection;
+    saveBtn.onclick = saveConnection;
+    cancelEditBtn.onclick = resetForm;
+    sendBtn.onclick = sendMessage;
+    clearBtn.onclick = clearConversation;
+
+    activeSelect.onchange = async (e) => {
+        const id = e.target.value;
+        if (!id) return;
+        await fetch(BACKEND + `/api/connections/${id}/activate`, {method:'POST'});
+        await loadConnections();
+    };
+
+    messageInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey){
+            e.preventDefault();
+            if (!isLoading) sendMessage();
+        }
+    });
+    messageInput.addEventListener('input', () => {
+        messageInput.style.height = 'auto';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+    });
+
+    (async () => {
+        await loadConnections();
+        if (!allConnections.length){
+            configPanel.classList.add('open');
+        }
+    })();
+})();
+</script>
+</body>
+</html>
