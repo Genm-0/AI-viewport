@@ -51,7 +51,7 @@ class ConnectionInput(BaseModel):
     endpoint: str
     api_key: str
     model: str
-    request_proxy: Optional[str] = ""   # 例: http://127.0.0.1:7890，空表示直连
+    request_proxy: Optional[str] = ""   # 例: http://127.0.0.1:6789，空表示直连
     extra_headers: Optional[Dict[str, str]] = {}
 
 
@@ -377,7 +377,7 @@ async def test_connection(req: TestConnectionRequest):
         result["error"] = "请求超时（15秒）"
     except requests.exceptions.ProxyError as e:
         result["elapsed_ms"] = int((time.time() - start) * 1000)
-        result["error"] = f"代理错误: {e}（请检查代理地址是否可用，例如 {proxy or '未配置'}）"
+        result["error"] = f"代理错误: {e}（请检查代理地址是否可用）"
     except requests.exceptions.ConnectionError as e:
         result["elapsed_ms"] = int((time.time() - start) * 1000)
         result["error"] = f"无法连接: {e}"
