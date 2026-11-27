@@ -23,17 +23,17 @@
 ## 快速开始
 
 ### 1. 克隆仓库
-
-bash
 git clone https://github.com/Genm-0/AI-viewport.git
 cd AI-viewport
-
 ### 2. 创建虚拟环境并安装依赖
-bash
 python -m venv .venv
 # Windows
 .venv\Scripts\activate
 # macOS / Linux
 source .venv/bin/activate
-
 pip install -r requirements.txt
+### 3. 启动服务
+python main.py
+默认监听 127.0.0.1:5050。可通过环境变量覆盖：
+HOST=0.0.0.0 PORT=8000 python main.py
+启动后浏览器访问 http://127.0.0.1:5050/ 即可打开管理界面。
