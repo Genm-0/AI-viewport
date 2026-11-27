@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>本地AI聊天框 · 代理支持</title>
+<title>本地AI聊天框 · 多会话 · 代理支持</title>
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -63,6 +63,22 @@
     }
     .icon-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
     .icon-btn:active { transform: scale(0.96); }
+
+    /* 会话栏 */
+    .session-bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 20px; background: rgba(18,19,26,0.5);
+        border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0;
+        overflow-x: auto;
+    }
+    .session-select {
+        background: #1b1d28; border: 1px solid rgba(255,255,255,0.08);
+        color: #eceef5; font-size: 0.82rem; padding: 6px 12px;
+        border-radius: 20px; outline: none; font-family: inherit;
+        max-width: 260px; cursor: pointer;
+    }
+    .session-select option { background: #1b1d28; }
+    .session-bar .mini-btn { white-space: nowrap; }
 
     .config-panel {
         background: rgba(15,16,22,0.98);
@@ -210,6 +226,18 @@
     }
     .meta { font-size: 0.68rem; color: #7b7f94; margin-bottom: 4px; margin-left: 4px; }
 
+    /* 重新生成按钮 */
+    .regen-btn {
+        margin-top: 6px; display: inline-flex; align-items: center; gap: 4px;
+        background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+        color: #9ba0b5; font-size: 0.72rem; padding: 4px 10px;
+        border-radius: 20px; cursor: pointer;
+        opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s;
+    }
+    .message.assistant:hover .regen-btn { opacity: 1; }
+    .regen-btn:hover { background: rgba(92,98,224,0.25); color: #c7cbff; }
+    .regen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
     .system-toast {
         align-self: center; background: rgba(180,60,60,0.25);
         border: 1px solid rgba(220,80,80,0.4); color: #ffb3b3;
@@ -281,6 +309,17 @@
         </div>
     </div>
 
+    <!-- 会话栏 -->
+    <div class="session-bar">
+        <label style="font-size:0.78rem;color:#8b8fa3;white-space:nowrap;">💬 会话</label>
+        <select id="sessionSelect" class="session-select">
+            <option value="">— 无会话 —</option>
+        </select>
+        <button class="mini-btn" id="newSessionBtn">＋ 新会话</button>
+        <button class="mini-btn" id="renameSessionBtn">✏️ 重命名</button>
+        <button class="mini-btn danger" id="deleteSessionBtn">🗑️ 删除</button>
+    </div>
+
     <div class="config-panel" id="configPanel">
         <div class="panel-section">
             <div class="section-title">📁 已保存的连接</div>
@@ -345,6 +384,7 @@
 <script>
 (function(){
     const BACKEND = '';
+    const SYSTEM_PROMPT = '你是一个乐于助人、知识渊博的AI助手。';
 
     const chatMessages = document.getElementById('chatMessages');
     const messageInput = document.getElementById('messageInput');
@@ -367,12 +407,22 @@
     const statusDot = document.getElementById('statusDot');
     const formTitle = document.getElementById('formTitle');
 
+    // 会话相关元素
+    const sessionSelect = document.getElementById('sessionSelect');
+    const newSessionBtn = document.getElementById('newSessionBtn');
+    const renameSessionBtn = document.getElementById('renameSessionBtn');
+    const deleteSessionBtn = document.getElementById('deleteSessionBtn');
+
     let isLoading = false;
     let typingIndicatorEl = null;
-    let conversationHistory = [{ role:'system', content:'你是一个乐于助人、知识渊博的AI助手。' }];
+    let conversationHistory = [{ role:'system', content: SYSTEM_PROMPT }];
     let allConnections = [];
     let editingId = null;
     let selectedModel = '';
+
+    let allSessions = [];
+    let activeSessionId = null;
+    let lastUserText = null;
 
     function scrollToBottom(){ chatMessages.scrollTop = chatMessages.scrollHeight; }
     function setStatus(state){
@@ -396,6 +446,14 @@
             const bubble = document.createElement('div');
             bubble.className = 'bubble'; bubble.textContent = content;
             inner.appendChild(meta); inner.appendChild(bubble);
+
+            if (role === 'assistant') {
+                const regen = document.createElement('button');
+                regen.className = 'regen-btn';
+                regen.innerHTML = '🔄 重新生成';
+                regen.onclick = () => regenerate(msg);
+                inner.appendChild(regen);
+            }
             msg.appendChild(inner); chatMessages.appendChild(msg);
         }
         scrollToBottom();
@@ -421,6 +479,19 @@
         testResult.className = 'test-result'; testResult.textContent = '';
     }
 
+    function escapeHtml(s){
+        return String(s).replace(/[&<>"']/g, ch => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[ch]));
+    }
+    function shortenEndpoint(ep){
+        try {
+            const u = new URL(ep);
+            return u.host + (u.pathname.length > 30 ? u.pathname.slice(0,30)+'…' : u.pathname);
+        } catch { return ep.slice(0,40); }
+    }
+
+    // ==================== 连接管理 ====================
     function renderConnections(){
         activeSelect.innerHTML = '';
         if (!allConnections.length){
@@ -468,17 +539,6 @@
         connList.querySelectorAll('button[data-act]').forEach(btn => {
             btn.onclick = () => handleConnAction(btn.dataset.act, btn.dataset.id);
         });
-    }
-    function escapeHtml(s){
-        return String(s).replace(/[&<>"']/g, ch => ({
-            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-        }[ch]));
-    }
-    function shortenEndpoint(ep){
-        try {
-            const u = new URL(ep);
-            return u.host + (u.pathname.length > 30 ? u.pathname.slice(0,30)+'…' : u.pathname);
-        } catch { return ep.slice(0,40); }
     }
 
     async function loadConnections(){
@@ -561,7 +621,7 @@
         if (apiKey) body.api_key = apiKey;
         if (!apiKey && editingId) body.connection_id = editingId;
         if (proxy) body.request_proxy = proxy;
-        else if (!proxy && editingId) body.request_proxy = '';  // 显式置空
+        else if (!proxy && editingId) body.request_proxy = '';
 
         try {
             const r = await fetch(BACKEND + '/api/test-connection', {
@@ -669,6 +729,145 @@
         }
     }
 
+    // ==================== 会话管理 ====================
+    async function loadSessions() {
+        try {
+            const r = await fetch(BACKEND + '/api/sessions');
+            const d = await r.json();
+            allSessions = d.sessions || [];
+            if (!activeSessionId && allSessions.length) {
+                activeSessionId = d.active_id || allSessions[0].id;
+            }
+            if (activeSessionId && !allSessions.find(s => s.id === activeSessionId)) {
+                activeSessionId = allSessions.length ? allSessions[0].id : null;
+            }
+            renderSessionSelect();
+        } catch (e) { console.error('加载会话失败', e); }
+    }
+
+    function renderSessionSelect() {
+        sessionSelect.innerHTML = '';
+        if (!allSessions.length) {
+            sessionSelect.innerHTML = '<option value="">— 无会话 —</option>';
+            return;
+        }
+        allSessions.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.title + (s.message_count ? ` (${s.message_count})` : '');
+            if (s.id === activeSessionId) opt.selected = true;
+            sessionSelect.appendChild(opt);
+        });
+    }
+
+    async function loadSessionContent(sid) {
+        const r = await fetch(BACKEND + `/api/sessions/${sid}`);
+        if (!r.ok) return;
+        const s = await r.json();
+        conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+        chatMessages.innerHTML = '';
+        const msgs = s.messages || [];
+        if (!msgs.length) {
+            appendMessage('assistant', '你好！这是一个新会话，开始聊天吧。');
+        } else {
+            msgs.forEach(m => {
+                if (m.role === 'user' || m.role === 'assistant') {
+                    appendMessage(m.role, m.content);
+                    conversationHistory.push({ role: m.role, content: m.content });
+                }
+            });
+        }
+        scrollToBottom();
+    }
+
+    async function persistSession() {
+        if (!activeSessionId) return;
+        try {
+            await fetch(BACKEND + `/api/sessions/${activeSessionId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: conversationHistory.filter(m => m.role !== 'system')
+                })
+            });
+            // 刷新列表计数
+            const r = await fetch(BACKEND + '/api/sessions');
+            const d = await r.json();
+            allSessions = d.sessions || [];
+            renderSessionSelect();
+        } catch (e) { console.error('保存会话失败', e); }
+    }
+
+    async function createSession() {
+        try {
+            const r = await fetch(BACKEND + '/api/sessions', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: '新对话' })
+            });
+            const d = await r.json();
+            activeSessionId = d.id;
+            conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+            chatMessages.innerHTML = '';
+            appendMessage('assistant', '你好！这是一个新会话，开始聊天吧。');
+            await loadSessions();
+        } catch (e) { console.error('新建会话失败', e); }
+    }
+
+    async function renameSession() {
+        if (!activeSessionId) { alert('当前没有会话'); return; }
+        const cur = allSessions.find(s => s.id === activeSessionId);
+        const title = prompt('新标题：', cur ? cur.title : '');
+        if (!title || !title.trim()) return;
+        await fetch(BACKEND + `/api/sessions/${activeSessionId}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: title.trim() })
+        });
+        await loadSessions();
+    }
+
+    async function deleteSession() {
+        if (!activeSessionId) { alert('当前没有会话'); return; }
+        if (!confirm('删除当前会话？')) return;
+        await fetch(BACKEND + `/api/sessions/${activeSessionId}`, { method: 'DELETE' });
+        activeSessionId = null;
+        conversationHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+        chatMessages.innerHTML = '';
+        await loadSessions();
+        if (activeSessionId) {
+            await fetch(BACKEND + `/api/sessions/${activeSessionId}/activate`, { method: 'POST' });
+            await loadSessionContent(activeSessionId);
+        } else {
+            appendMessage('assistant', '会话已删除，点击「＋ 新会话」开始。');
+        }
+    }
+
+    // ==================== 聊天 ====================
+    async function requestReply(history, active) {
+        const r = await fetch(BACKEND + '/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                messages: history,
+                connection_id: active.id,
+                model: active.model
+            })
+        });
+        if (!r.ok){
+            let err = '';
+            try { const j = await r.json(); err = j.detail || JSON.stringify(j); }
+            catch { err = await r.text(); }
+            throw new Error(`HTTP ${r.status}: ${err}`);
+        }
+        const data = await r.json();
+        let reply = '';
+        if (data.choices && data.choices[0]?.message?.content) reply = data.choices[0].message.content;
+        else if (data.content) reply = data.content;
+        else if (data.response) reply = data.response;
+        else if (data.text) reply = data.text;
+        if (!reply || !reply.trim()) throw new Error('API 返回空回复');
+        return reply;
+    }
+
     async function sendMessage(){
         const text = messageInput.value.trim();
         if (!text || isLoading) return;
@@ -677,9 +876,12 @@
             appendMessage(null, '⚠️ 请先在「连接管理」中添加并启用一个连接', true);
             return;
         }
-
+        if (!activeSessionId) {
+            await createSession();
+        }
         appendMessage('user', text);
         conversationHistory.push({ role:'user', content:text });
+        lastUserText = text;
         messageInput.value = '';
         messageInput.style.height = 'auto';
         isLoading = true;
@@ -687,33 +889,12 @@
         showTyping();
 
         try {
-            const r = await fetch(BACKEND + '/api/chat', {
-                method: 'POST',
-                headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({
-                    messages: conversationHistory,
-                    connection_id: active.id,
-                    model: active.model
-                })
-            });
-            if (!r.ok){
-                let err = '';
-                try { const j = await r.json(); err = j.detail || JSON.stringify(j); }
-                catch { err = await r.text(); }
-                throw new Error(`HTTP ${r.status}: ${err}`);
-            }
-            const data = await r.json();
-            let reply = '';
-            if (data.choices && data.choices[0]?.message?.content) reply = data.choices[0].message.content;
-            else if (data.content) reply = data.content;
-            else if (data.response) reply = data.response;
-            else if (data.text) reply = data.text;
-
-            if (!reply || !reply.trim()) throw new Error('API 返回空回复');
+            const reply = await requestReply(conversationHistory, active);
             hideTyping();
             appendMessage('assistant', reply);
             conversationHistory.push({ role:'assistant', content:reply });
             setStatus('ok');
+            await persistSession();
         } catch(e){
             hideTyping();
             appendMessage(null, '⚠️ ' + e.message, true);
@@ -725,19 +906,74 @@
         }
     }
 
+    async function regenerate(assistantMsgEl) {
+        if (isLoading) return;
+        const active = allConnections.find(c => c.is_active);
+        if (!active) {
+            appendMessage(null, '⚠️ 请先启用一个连接', true);
+            return;
+        }
+        const lastMsg = chatMessages.lastElementChild;
+        if (lastMsg !== assistantMsgEl) {
+            appendMessage(null, '⚠️ 只能重新生成最后一条 AI 回复', true);
+            return;
+        }
+        const lastHist = conversationHistory[conversationHistory.length - 1];
+        if (!lastHist || lastHist.role !== 'assistant') {
+            appendMessage(null, '⚠️ 没有可重新生成的内容', true);
+            return;
+        }
+        conversationHistory.pop();
+        assistantMsgEl.remove();
+
+        isLoading = true;
+        sendBtn.disabled = true;
+        showTyping();
+        try {
+            const reply = await requestReply(conversationHistory, active);
+            hideTyping();
+            appendMessage('assistant', reply);
+            conversationHistory.push({ role:'assistant', content:reply });
+            setStatus('ok');
+            await persistSession();
+        } catch(e) {
+            hideTyping();
+            appendMessage(null, '⚠️ ' + e.message, true);
+            setStatus('fail');
+        } finally {
+            isLoading = false;
+            sendBtn.disabled = false;
+        }
+    }
+
     function clearConversation(){
         if (isLoading) return;
         chatMessages.innerHTML = '';
-        conversationHistory = [{ role:'system', content:'你是一个乐于助人、知识渊博的AI助手。' }];
+        conversationHistory = [{ role:'system', content: SYSTEM_PROMPT }];
         appendMessage('assistant', '对话已清空。我们可以重新开始了！');
+        persistSession();
     }
 
+    // ==================== 事件绑定 ====================
     toggleConfigBtn.onclick = () => configPanel.classList.toggle('open');
     testBtn.onclick = testConnection;
     saveBtn.onclick = saveConnection;
     cancelEditBtn.onclick = resetForm;
     sendBtn.onclick = sendMessage;
     clearBtn.onclick = clearConversation;
+
+    newSessionBtn.onclick = createSession;
+    renameSessionBtn.onclick = renameSession;
+    deleteSessionBtn.onclick = deleteSession;
+
+    sessionSelect.onchange = async (e) => {
+        const sid = e.target.value;
+        if (!sid) return;
+        activeSessionId = sid;
+        await fetch(BACKEND + `/api/sessions/${sid}/activate`, { method:'POST' });
+        await loadSessionContent(sid);
+        await loadSessions();
+    };
 
     activeSelect.onchange = async (e) => {
         const id = e.target.value;
@@ -759,6 +995,13 @@
 
     (async () => {
         await loadConnections();
+        await loadSessions();
+        // 启动时若一个会话都没有，自动建一个
+        if (!allSessions.length) {
+            await createSession();
+        } else if (activeSessionId) {
+            await loadSessionContent(activeSessionId);
+        }
         if (!allConnections.length){
             configPanel.classList.add('open');
         }
