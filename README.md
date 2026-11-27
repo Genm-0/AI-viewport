@@ -15,7 +15,7 @@
 ## 技术栈
 
 - Python 3.9+
-- - FastAPI + Uvicorn
+- FastAPI + Uvicorn
 - Pydantic
 - requests
 - python-dotenv
@@ -38,9 +38,12 @@ macOS / Linux
 - pip install -r requirements.txt
 
 ### 3. 启动服务
-- python main.py
-默认监听 127.0.0.1:5050。可通过环境变量覆盖：
+- python main.py 
+- 默认监听 127.0.0.1:5050
+- 可通过环境变量覆盖：
 - HOST=0.0.0.0 PORT=8000 python main.py
 
 启动后浏览器访问 http://127.0.0.1:5050/ 即可打开管理界面
+
+<img width="1911" height="1078" alt="image" src="https://github.com/user-attachments/assets/2603688a-c479-4f2a-b25a-e12b88795b54" />
 
