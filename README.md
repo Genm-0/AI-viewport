@@ -29,7 +29,7 @@ cd AI-viewport
 ### 2. 创建虚拟环境并安装依赖
 python -m venv .venv
 
-Windows
+Windows 
 .venv\Scripts\activate
 
 macOS / Linux
