@@ -1,7 +1,7 @@
 # AI-viewport
 # 本地 AI 聊天后端
 
-一个基于 FastAPI 的本地 AI 聊天后端服务，支持多连接配置管理、代理设置、连通性测试，以及兼容 OpenAI 格式的聊天接口转发。前端页面由项目根目录的 `index.html` 提供。
+一个基于 FastAPI 的本地 AI 聊天后端服务，支持多连接配置管理、代理设置、连通性测试，以及兼容 OpenAI 格式的聊天接口转发。
 
 ## 功能特性
 
@@ -15,7 +15,7 @@
 ## 技术栈
 
 - Python 3.9+
-- FastAPI + Uvicorn
+- - FastAPI + Uvicorn
 - Pydantic
 - requests
 - python-dotenv
@@ -23,23 +23,24 @@
 ## 快速开始
 
 ### 1. 克隆仓库
-git clone https://github.com/Genm-0/AI-viewport.git
-cd AI-viewport
+- git clone https://github.com/Genm-0/AI-viewport.git
+- cd AI-viewport
 
 ### 2. 创建虚拟环境并安装依赖
-python -m venv .venv
+- python -m venv .venv
 
 Windows 
-.venv\Scripts\activate
+- .venv\Scripts\activate
 
 macOS / Linux
-source .venv/bin/activate
+- source .venv/bin/activate
 
-pip install -r requirements.txt
+- pip install -r requirements.txt
 
 ### 3. 启动服务
-python main.py
+- python main.py
 默认监听 127.0.0.1:5050。可通过环境变量覆盖：
-HOST=0.0.0.0 PORT=8000 python main.py
-启动后浏览器访问 http://127.0.0.1:5050/ 即可打开管理界面。
+- HOST=0.0.0.0 PORT=8000 python main.py
+
+启动后浏览器访问 http://127.0.0.1:5050/ 即可打开管理界面
 
